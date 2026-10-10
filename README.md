@@ -1,9 +1,11 @@
 # Virtual Automotive ECU Platform
 
 A software-only C++17 portfolio project for automotive communication,
-diagnostics, threading, and testing. Phase 2 adds validated communication values
-and mockable interfaces. The CLI remains the Phase 1 placeholder. Concrete
-ECUs, CAN routing, diagnostics, and worker threads are not implemented yet.
+diagnostics, threading, and testing. Engine, Brake, and Dashboard ECUs now
+communicate through a single-threaded virtual CAN bus with exact-ID filters
+and bounded FIFO inboxes. The CLI demonstrates telemetry, brake application,
+stale data, and recovery. Diagnostics management and worker threads remain
+later phases.
 
 ## Requirements
 
@@ -27,22 +29,27 @@ make --version
 
 ```text
 CMakeLists.txt                 Core, executable, and test targets
-app/main.cpp                   Minimal executable
-include/vaecu/                 Frame, identifier, time, ECU/transport interfaces
-src/                          Validated identifier/frame implementation
+app/main.cpp                   Deterministic ECU communication demonstration
+include/vaecu/                 Frame, transport, message schema, and ECU declarations
+src/                          Frame, codecs, virtual bus, and ECU implementation
 tests/                        GoogleTest and GoogleMock tests
 docs/foundations.md            Public contracts and ownership rules
+docs/virtual_can_bus.md        Routing, queue, closure, and interface changes
+docs/messages.md               Message encoding, ECU behavior, and freshness
 ```
 
 `vaecu_core` is a static library. `vaecu_sim` links it without test dependencies.
-See [the public contracts](docs/foundations.md) for interface details.
+See [the public contracts](docs/foundations.md) and
+[the bus contracts](docs/virtual_can_bus.md) for interface details. Message IDs,
+byte layouts, units, and ECU behavior are defined in
+[the simulation schema](docs/messages.md).
 
 ## Build, test, and run on macOS Apple Silicon
 
 Run these commands from the repository root:
 
 ```sh
-cmake -S . -B build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_OSX_ARCHITECTURES=arm64 -DBUILD_TESTING=ON
+cmake -S . -B build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=/usr/bin/clang++ -DCMAKE_OSX_ARCHITECTURES=arm64 -DBUILD_TESTING=ON
 cmake --build build --parallel 2
 ctest --test-dir build --output-on-failure --no-tests=error
 ./build/vaecu_sim
@@ -55,15 +62,21 @@ build includes `Built target vaecu_sim` and `Built target vaecu_tests`.
 Expected test summary (after a successful test-enabled build):
 
 ```text
-100% tests passed, 0 tests failed out of 22
+100% tests passed, 0 tests failed out of 98
 ```
 
-The suite covers identifier/frame validation and interface mockability. It does
-not test concrete ECUs or a bus, which are outside this phase.
+The suite covers identifier/frame validation, interface mockability, routing,
+filtering, FIFO ordering, malformed envelopes, overflow, unknown receivers, and
+closure, explicit message codecs, concrete ECU lifecycle and behavior,
+dashboard freshness, recovery, and communication between ECUs. It creates no
+threads or real-time sleeps.
 Expected executable output:
 
 ```text
-Virtual Automotive ECU Platform - Phase 1 scaffold
+normal: engine=fresh rpm=1500 speed_kph=60 brake=fresh applied=false
+apply: engine=fresh rpm=2500 speed_kph=80 brake=fresh applied=true
+stale: engine=stale rpm=2500 speed_kph=80 brake=stale applied=true
+recovery: engine=fresh rpm=2500 speed_kph=80 brake=fresh applied=true
 ```
 
 ## Dependency strategy
@@ -84,7 +97,7 @@ updating both the URL and hash. An unavailable download fails configuration.
 To build only the application without downloading GoogleTest:
 
 ```sh
-cmake -S . -B build-app -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_OSX_ARCHITECTURES=arm64 -DBUILD_TESTING=OFF
+cmake -S . -B build-app -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=/usr/bin/clang++ -DCMAKE_OSX_ARCHITECTURES=arm64 -DBUILD_TESTING=OFF
 cmake --build build-app --parallel 2
 ./build-app/vaecu_sim
 ```
@@ -103,12 +116,14 @@ apply to project targets only: GCC/Clang use `-Wall -Wextra -Wpedantic
 -Wconversion -Wsign-conversion -Wshadow`; MSVC uses `/W4 /permissive-
 /Zc:__cplusplus`.
 
-The initial verification target is macOS arm64 with Apple Clang. Windows,
-Linux, Intel macOS, CI, and sanitizers will be verified in later phases. Build
-results must be recorded separately from the expected output above.
+The current verification target is macOS arm64 with Apple Clang. The 98-test
+suite also passed with AddressSanitizer and UndefinedBehaviorSanitizer on that
+platform. Windows, Linux, Intel macOS, and CI remain unverified. Build results
+must be recorded separately from the expected output above.
 
-Local verification results are recorded in [the foundation notes](docs/foundations.md).
-Expected output above is not evidence that the GoogleTest suite has executed.
+Actual verification results for the current ECU phase are recorded in
+[the schema and ECU notes](docs/messages.md). Earlier bus results remain in
+[the bus notes](docs/virtual_can_bus.md).
 
 ## Git initialization
 

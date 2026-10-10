@@ -40,7 +40,7 @@ public:
 
 class MockReceiver : public ICanReceiver {
 public:
-    MOCK_METHOD(ReceiveResult, receive_until, (Timestamp deadline), (override));
+    MOCK_METHOD(ReceiveResult, try_receive, (), (override));
 };
 
 class MockEcu : public IEcu {
@@ -79,17 +79,16 @@ TEST(TransportInterfaceTest, DistinguishesNoSubscribersFromClosure)
     EXPECT_EQ(interface.send(frame).status, SendStatus::Closed);
 }
 
-TEST(TransportInterfaceTest, ReturnsAnOwnedFrameUsingAnExplicitDeadline)
+TEST(TransportInterfaceTest, ReturnsAnOwnedFrameWithoutWaiting)
 {
     StrictMock<MockReceiver> receiver;
     const Timestamp timestamp{std::chrono::milliseconds{100}};
-    const Timestamp deadline{std::chrono::milliseconds{200}};
     const CanFrame frame{CanId{0x100}, {42}, 1, timestamp};
-    EXPECT_CALL(receiver, receive_until(deadline))
+    EXPECT_CALL(receiver, try_receive())
         .WillOnce(Return(ReceiveResult{frame}));
 
     ICanReceiver& interface = receiver;
-    const ReceiveResult result = interface.receive_until(deadline);
+    const ReceiveResult result = interface.try_receive();
 
     ASSERT_TRUE(std::holds_alternative<CanFrame>(result));
     const CanFrame& received = std::get<CanFrame>(result);
@@ -99,21 +98,20 @@ TEST(TransportInterfaceTest, ReturnsAnOwnedFrameUsingAnExplicitDeadline)
     EXPECT_EQ(received.timestamp(), timestamp);
 }
 
-TEST(TransportInterfaceTest, DistinguishesTimeoutFromClosureWithoutAFrame)
+TEST(TransportInterfaceTest, DistinguishesEmptyFromClosureWithoutAFrame)
 {
     StrictMock<MockReceiver> receiver;
-    const Timestamp deadline{std::chrono::milliseconds{200}};
-    EXPECT_CALL(receiver, receive_until(deadline))
-        .WillOnce(Return(ReceiveResult{ReceiveStatus::Timeout}))
+    EXPECT_CALL(receiver, try_receive())
+        .WillOnce(Return(ReceiveResult{ReceiveStatus::Empty}))
         .WillOnce(Return(ReceiveResult{ReceiveStatus::Closed}));
 
     ICanReceiver& interface = receiver;
-    const ReceiveResult timeout = interface.receive_until(deadline);
-    const ReceiveResult closed = interface.receive_until(deadline);
+    const ReceiveResult empty = interface.try_receive();
+    const ReceiveResult closed = interface.try_receive();
 
-    ASSERT_TRUE(std::holds_alternative<ReceiveStatus>(timeout));
+    ASSERT_TRUE(std::holds_alternative<ReceiveStatus>(empty));
     ASSERT_TRUE(std::holds_alternative<ReceiveStatus>(closed));
-    EXPECT_EQ(std::get<ReceiveStatus>(timeout), ReceiveStatus::Timeout);
+    EXPECT_EQ(std::get<ReceiveStatus>(empty), ReceiveStatus::Empty);
     EXPECT_EQ(std::get<ReceiveStatus>(closed), ReceiveStatus::Closed);
 }
 

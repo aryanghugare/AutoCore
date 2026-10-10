@@ -9,17 +9,20 @@ namespace vaecu {
 
 enum class SendStatus {
     Routed,
-    Closed
+    Closed,
+    InvalidFrame
 };
 
 // Routed may have zero subscribers or partial delivery. For Routed, matching
-// subscribers equal delivered + dropped. Closed must have both counts zero.
+// active subscribers equal delivered + dropped. Closed/InvalidFrame have zero counts.
 struct SendResult {
     SendStatus status;
     std::size_t delivered;
     std::size_t dropped;
 };
 
+// These interfaces make no thread-safety guarantee. Callers must obey the
+// concrete implementation's synchronization contract and preserve its lifetime.
 class ICanSender {
 public:
     virtual ~ICanSender() = default;
@@ -38,7 +41,7 @@ protected:
 };
 
 enum class ReceiveStatus {
-    Timeout,
+    Empty,
     Closed
 };
 
@@ -46,6 +49,7 @@ enum class ReceiveStatus {
 // no frame was returned; there is no separate, inconsistent "has frame" flag.
 using ReceiveResult = std::variant<CanFrame, ReceiveStatus>;
 
+// Shared ownership of a receiver does not synchronize its operations.
 class ICanReceiver {
 public:
     virtual ~ICanReceiver() = default;
@@ -55,11 +59,10 @@ public:
     ICanReceiver(ICanReceiver&&) = delete;
     ICanReceiver& operator=(ICanReceiver&&) = delete;
 
-    // Return a queued frame, Timeout at the deadline, or Closed when the
-    // receive endpoint closes. An already queued frame may be returned for
-    // an expired deadline. Closed takes precedence over pending frames.
-    // Waiting must be interruptible by closure; no polling/busy waiting.
-    [[nodiscard]] virtual ReceiveResult receive_until(Timestamp deadline) = 0;
+    // Return an owned queued frame, Empty, or Closed without waiting.
+    // Closed takes precedence over pending frames. A future concurrent
+    // runtime can add a separate interruptible timed-wait operation.
+    [[nodiscard]] virtual ReceiveResult try_receive() = 0;
 
 protected:
     ICanReceiver() = default;

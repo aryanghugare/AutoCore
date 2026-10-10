@@ -20,7 +20,15 @@ function(vaecu_enable_warnings target)
     endif()
 endfunction()
 
-add_library(vaecu_core STATIC src/can_id.cpp src/can_frame.cpp)
+add_library(vaecu_core STATIC
+    src/can_id.cpp
+    src/can_frame.cpp
+    src/virtual_can_bus.cpp
+    src/messages.cpp
+    src/engine_ecu.cpp
+    src/brake_ecu.cpp
+    src/dashboard_ecu.cpp
+)
 target_include_directories(vaecu_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_compile_features(vaecu_core PUBLIC cxx_std_17)
 vaecu_enable_warnings(vaecu_core)
@@ -49,6 +57,10 @@ if(BUILD_TESTING)
         tests/build_smoke_test.cpp
         tests/can_frame_test.cpp
         tests/interfaces_test.cpp
+        tests/virtual_can_bus_test.cpp
+        tests/messages_test.cpp
+        tests/ecus_test.cpp
+        tests/ecu_integration_test.cpp
     )
     target_link_libraries(vaecu_tests PRIVATE vaecu_core GTest::gtest_main GTest::gmock)
     vaecu_enable_warnings(vaecu_tests)

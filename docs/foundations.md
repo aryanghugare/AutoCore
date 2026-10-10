@@ -1,7 +1,9 @@
 # Communication foundations
 
-This phase defines values and behavioral boundaries only. It implements no
-bus, queues, routing, arbitration, concrete automotive ECU, or worker thread.
+The foundation phase defines values and behavioral boundaries only. The next
+phase's bus and queues are documented in [virtual_can_bus.md](virtual_can_bus.md).
+Concrete ECUs are now described in [messages.md](messages.md); there are no
+worker threads yet.
 The frame resembles an 11-bit, eight-byte classic CAN data frame; it does not
 implement the full CAN standard, CAN FD, electrical signaling, or wire timing.
 
@@ -64,26 +66,26 @@ referenced through caller-owned storage.
 - `Routed`: matching recipients were considered. Counts can describe complete
   delivery, partial delivery, all drops, or zero matching subscribers.
 - `Closed`: admission is closed; both counts must be zero.
+- `InvalidFrame`: envelope validation failed; both counts must be zero.
 - For `Routed`, the number of matching recipients is `delivered + dropped`.
 
-There is no invalid-frame status: invalid envelopes cannot be constructed.
-Expected invalid input is handled by validation before publication. Result
+Typed frames enforce their invariants. The bus phase adds a raw-envelope
+validation boundary that can return `InvalidFrame` before construction. Result
 counts are an implementation contract; the plain record does not enforce them.
 Unexpected implementation failures may throw and will need a future runtime
 exception boundary. Automatic retries are not part of this interface.
 
 ## Reception: `ICanReceiver`
 
-`receive_until(deadline)` returns a `ReceiveResult`, a variant containing either
+`try_receive()` returns a `ReceiveResult`, a variant containing either
 an owned `CanFrame` or a `ReceiveStatus`:
 
-- `Timeout`: no frame was available when the deadline was reached.
+- `Empty`: no frame is currently queued.
 - `Closed`: the endpoint closed; closure takes precedence over queued frames.
 
-An already queued frame may be returned for an expired deadline. A live wait
-must be interruptible by closure and must not busy-wait. Timing tolerance,
-storage capacity, closure mechanisms, and concurrent-call support require a
-concrete implementation and are not implemented by this interface.
+Reception returns immediately. The bus phase replaces the originally proposed
+timed receive operation to keep single-threaded behavior deterministic. Timed
+waiting and concurrent-call support remain future runtime concerns.
 
 The separate sender/receiver interfaces let ECU behavior depend only on
 publication while a runtime handles reception and dispatches ECU callbacks.
@@ -103,8 +105,9 @@ The user-requested ECU interface is a narrow behavior boundary:
 The owner calls `start()` at most once and never calls ticks/messages before a
 successful start or after stop. It serializes all calls. These hooks do not
 create threads, block for reception, join workers, or implement diagnostics.
-The interface itself does not enforce lifecycle state; concrete implementations
-will need their own lifecycle tests in the later ECU phase.
+The interface itself does not enforce lifecycle state. Concrete Engine, Brake,
+and Dashboard implementations enforce it and have their own lifecycle tests;
+their contracts are documented in [messages.md](messages.md).
 
 All interfaces have virtual destructors and prohibit copying/moving identity.
 The owner must call `stop()` before destroying an active ECU. Interface
@@ -117,14 +120,14 @@ GoogleTest cases cover ID boundaries and extremes, all payload lengths,
 oversized payload counts, normalized padding, independent storage, explicit
 timestamps, and copy/move behavior. GoogleMock checks calls through sender,
 receiver, and ECU interfaces, including partial delivery, no subscribers,
-closure, timeout, and lifecycle call ordering. Compile-time assertions check
+closure, empty inboxes, and lifecycle call ordering. Compile-time assertions check
 strong typing, const payload access, virtual destruction, and `noexcept` stop.
 
 Mock tests establish that the interfaces are usable and mockable. They do not
-prove routing, real receive deadlines, lifecycle enforcement, or thread safety;
-those implementations are intentionally deferred.
+prove routing, lifecycle enforcement, or thread safety. Actual routing and queue
+behavior are covered separately by the bus tests.
 
-## Local verification
+## Foundation-phase local verification (historical)
 
 On macOS arm64 with Apple Clang 21.0.0 and CMake 4.2.3:
 
