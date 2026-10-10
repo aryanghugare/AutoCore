@@ -20,7 +20,13 @@ function(vaecu_enable_warnings target)
     endif()
 endfunction()
 
+add_library(vaecu_core STATIC src/can_id.cpp src/can_frame.cpp)
+target_include_directories(vaecu_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_compile_features(vaecu_core PUBLIC cxx_std_17)
+vaecu_enable_warnings(vaecu_core)
+
 add_executable(vaecu_sim app/main.cpp)
+target_link_libraries(vaecu_sim PRIVATE vaecu_core)
 vaecu_enable_warnings(vaecu_sim)
 
 include(CTest)
@@ -39,8 +45,12 @@ if(BUILD_TESTING)
     )
     FetchContent_MakeAvailable(googletest)
 
-    add_executable(vaecu_tests tests/build_smoke_test.cpp)
-    target_link_libraries(vaecu_tests PRIVATE GTest::gtest_main)
+    add_executable(vaecu_tests
+        tests/build_smoke_test.cpp
+        tests/can_frame_test.cpp
+        tests/interfaces_test.cpp
+    )
+    target_link_libraries(vaecu_tests PRIVATE vaecu_core GTest::gtest_main GTest::gmock)
     vaecu_enable_warnings(vaecu_tests)
 
     include(GoogleTest)

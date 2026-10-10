@@ -1,7 +1,8 @@
 # Virtual Automotive ECU Platform
 
 A software-only C++17 portfolio project for automotive communication,
-diagnostics, threading, and testing. Phase 1 provides the build scaffold only.
+diagnostics, threading, and testing. Phase 2 adds validated communication values
+and mockable interfaces. The CLI remains the Phase 1 placeholder. Concrete
 ECUs, CAN routing, diagnostics, and worker threads are not implemented yet.
 
 ## Requirements
@@ -25,16 +26,16 @@ make --version
 ## Structure
 
 ```text
-CMakeLists.txt                 Root build configuration
+CMakeLists.txt                 Core, executable, and test targets
 app/main.cpp                   Minimal executable
-tests/build_smoke_test.cpp     Placeholder GoogleTest test
-include/vaecu/                 Reserved for public headers
-src/                          Reserved for core implementation
-docs/                         Reserved for project documentation
+include/vaecu/                 Frame, identifier, time, ECU/transport interfaces
+src/                          Validated identifier/frame implementation
+tests/                        GoogleTest and GoogleMock tests
+docs/foundations.md            Public contracts and ownership rules
 ```
 
-The reserved directories contain empty `.gitkeep` files. A core library target
-will be added when core source files exist.
+`vaecu_core` is a static library. `vaecu_sim` links it without test dependencies.
+See [the public contracts](docs/foundations.md) for interface details.
 
 ## Build, test, and run on macOS Apple Silicon
 
@@ -54,11 +55,11 @@ build includes `Built target vaecu_sim` and `Built target vaecu_tests`.
 Expected test summary (after a successful test-enabled build):
 
 ```text
-1/1 Test #1: BuildSmokeTest.SupportsCpp17 ... Passed
-100% tests passed, 0 tests failed out of 1
+100% tests passed, 0 tests failed out of 22
 ```
 
-The placeholder checks the C++17/GoogleTest build path, not ECU behavior.
+The suite covers identifier/frame validation and interface mockability. It does
+not test concrete ECUs or a bus, which are outside this phase.
 Expected executable output:
 
 ```text
@@ -75,8 +76,8 @@ and verifies SHA-256:
 65fab701d9829d38cb77c14acdc431d2108bfdbf8979e40eb8ae567edf10b27c
 ```
 
-GoogleTest and GoogleMock are built from that pinned release; the placeholder
-links only GoogleTest. Dependencies stay in the build directory. No dependency
+GoogleTest and GoogleMock are built from that pinned release; the test target
+links both. Dependencies stay in the build directory. No dependency
 is linked into the application. Changing the dependency requires deliberately
 updating both the URL and hash. An unavailable download fails configuration.
 
@@ -106,21 +107,11 @@ The initial verification target is macOS arm64 with Apple Clang. Windows,
 Linux, Intel macOS, CI, and sanitizers will be verified in later phases. Build
 results must be recorded separately from the expected output above.
 
-Local check on macOS arm64 used CMake 4.2.3 and Apple Clang 21.0.0. The
-application-only configure, build, and run succeeded. The test-enabled
-configuration failed because `github.com` could not be resolved; no GoogleTest
-test was executed.
+Local verification results are recorded in [the foundation notes](docs/foundations.md).
+Expected output above is not evidence that the GoogleTest suite has executed.
 
 ## Git initialization
 
-If this directory is not already a Git repository, run:
-
-```sh
-git init -b main
-git status --short
-```
-
-Expected initialization output includes `Initialized empty Git repository`.
-Initialization was attempted here but blocked by managed workspace permissions
-for `.git`. No commit or remote has been created.
+This directory is already a Git repository. This phase changes working-tree
+files only; it does not create commits or change remotes.
 
