@@ -1,0 +1,49 @@
+# Out-of-source CMake builds
+/build*/
+/out/
+/cmake-build-*/
+
+# Generated CMake files from accidental in-source configuration
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+DartConfiguration.tcl
+Testing/
+_deps/
+Makefile
+compile_commands.json
+CMakeUserPresets.json
+
+# Compiled artifacts and debug/profiling data
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.dSYM/
+*.profraw
+*.profdata
+
+# macOS metadata
+.DS_Store
+._*
+.AppleDouble/
+.LSOverride
+
+# Local IDE/editor settings
+.vscode/
+.idea/
+.vs/
+*.code-workspace
+*.user
+*.suo
+*.swp
+*.swo
+*~
