@@ -10,6 +10,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+find_package(Threads REQUIRED)
+
 function(vaecu_enable_warnings target)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /permissive- /Zc:__cplusplus)
@@ -28,9 +30,12 @@ add_library(vaecu_core STATIC
     src/engine_ecu.cpp
     src/brake_ecu.cpp
     src/dashboard_ecu.cpp
+    src/diagnostics.cpp
+    src/concurrent_simulation.cpp
 )
 target_include_directories(vaecu_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_compile_features(vaecu_core PUBLIC cxx_std_17)
+target_link_libraries(vaecu_core PUBLIC Threads::Threads)
 vaecu_enable_warnings(vaecu_core)
 
 add_executable(vaecu_sim app/main.cpp)
@@ -61,6 +66,9 @@ if(BUILD_TESTING)
         tests/messages_test.cpp
         tests/ecus_test.cpp
         tests/ecu_integration_test.cpp
+        tests/diagnostics_test.cpp
+        tests/diagnostic_integration_test.cpp
+        tests/concurrency_test.cpp
     )
     target_link_libraries(vaecu_tests PRIVATE vaecu_core GTest::gtest_main GTest::gmock)
     vaecu_enable_warnings(vaecu_tests)

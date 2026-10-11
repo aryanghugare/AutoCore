@@ -9,7 +9,7 @@ enum class MessageDisposition {
     None, Accepted, UnsupportedId, InvalidPayload, InvalidTimestamp, OutOfOrder
 };
 
-// Behavior interface only. A future runtime owns and serializes these calls;
+// Behavior interface only. Its owner (including ConcurrentSimulation) serializes calls;
 // implementations do not create threads, wait for frames, or join workers.
 class IEcu {
 public:

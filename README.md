@@ -2,10 +2,11 @@
 
 A software-only C++17 portfolio project for automotive communication,
 diagnostics, threading, and testing. Engine, Brake, and Dashboard ECUs now
-communicate through a single-threaded virtual CAN bus with exact-ID filters
+communicate through a thread-safe virtual CAN bus with exact-ID filters
 and bounded FIFO inboxes. The CLI demonstrates telemetry, brake application,
-stale data, and recovery. Diagnostics management and worker threads remain
-later phases.
+stale data, sensor/payload faults, communication timeouts, and recovery. A
+separate diagnostic observer stores bounded fault records and transition events.
+The default mode uses deterministic callbacks; `--concurrent` runs four workers.
 
 ## Requirements
 
@@ -29,13 +30,15 @@ make --version
 
 ```text
 CMakeLists.txt                 Core, executable, and test targets
-app/main.cpp                   Deterministic ECU communication demonstration
+app/main.cpp                   Deterministic and concurrent demonstrations
 include/vaecu/                 Frame, transport, message schema, and ECU declarations
 src/                          Frame, codecs, virtual bus, and ECU implementation
 tests/                        GoogleTest and GoogleMock tests
 docs/foundations.md            Public contracts and ownership rules
 docs/virtual_can_bus.md        Routing, queue, closure, and interface changes
 docs/messages.md               Message encoding, ECU behavior, and freshness
+docs/diagnostics.md            Fault identifiers, detection, records, and recovery
+docs/concurrency.md            Worker ownership, waits, cancellation, and sanitizers
 ```
 
 `vaecu_core` is a static library. `vaecu_sim` links it without test dependencies.
@@ -43,6 +46,11 @@ See [the public contracts](docs/foundations.md) and
 [the bus contracts](docs/virtual_can_bus.md) for interface details. Message IDs,
 byte layouts, units, and ECU behavior are defined in
 [the simulation schema](docs/messages.md).
+The [diagnostic contracts](docs/diagnostics.md) define the fault catalog and
+deterministic timing policy. The diagnostics are project-specific and do not
+implement UDS services.
+The [concurrent runtime contracts](docs/concurrency.md) describe synchronization
+and bounded reporting. ECU behavior objects still require serialized calls.
 
 ## Build, test, and run on macOS Apple Silicon
 
@@ -62,22 +70,58 @@ build includes `Built target vaecu_sim` and `Built target vaecu_tests`.
 Expected test summary (after a successful test-enabled build):
 
 ```text
-100% tests passed, 0 tests failed out of 98
+100% tests passed, 0 tests failed out of 155
 ```
 
 The suite covers identifier/frame validation, interface mockability, routing,
 filtering, FIFO ordering, malformed envelopes, overflow, unknown receivers, and
 closure, explicit message codecs, concrete ECU lifecycle and behavior,
-dashboard freshness, recovery, and communication between ECUs. It creates no
-threads or real-time sleeps.
+dashboard freshness, recovery, communication between ECUs, diagnostic storage,
+duplicate suppression, missing/stale data, sensor/payload faults, and timeout
+boundaries. Component tests retain injected time; concurrency tests use actual
+threads and bounded condition-variable waits.
 Expected executable output:
 
 ```text
 normal: engine=fresh rpm=1500 speed_kph=60 brake=fresh applied=false
 apply: engine=fresh rpm=2500 speed_kph=80 brake=fresh applied=true
+diagnostic: code=0x1001 active time_ms=200
+diagnostic: code=0x1001 recovered time_ms=300
+diagnostic: code=0x1103 active time_ms=400
 stale: engine=stale rpm=2500 speed_kph=80 brake=stale applied=true
+diagnostic: code=0x1102 active time_ms=600
+diagnostic: code=0x1202 active time_ms=600
+diagnostic: code=0x1104 active time_ms=1400
+diagnostic: code=0x1204 active time_ms=1400
 recovery: engine=fresh rpm=2500 speed_kph=80 brake=fresh applied=true
+diagnostic: code=0x1103 recovered time_ms=1500
+diagnostic: code=0x1102 recovered time_ms=1500
+diagnostic: code=0x1104 recovered time_ms=1500
+diagnostic: code=0x1202 recovered time_ms=1500
+diagnostic: code=0x1204 recovered time_ms=1500
 ```
+
+To run the concurrent demonstration:
+
+```sh
+./build/vaecu_sim --concurrent
+```
+
+It publishes telemetry, applies the brake, pauses Engine publication until a
+communication timeout, resumes it, and joins the workers. A typical successful
+run prints:
+
+```text
+concurrent normal: engine=fresh rpm=1500 speed_kph=60 brake=fresh applied=false
+concurrent apply: engine=fresh rpm=1500 speed_kph=60 brake=fresh applied=true
+concurrent timeout: engine=stale rpm=1500 speed_kph=60 brake=fresh applied=true
+concurrent recovery: engine=fresh rpm=1500 speed_kph=60 brake=fresh applied=true
+concurrent shutdown: workers joined
+```
+
+Scheduling is not deterministic; timeout detection uses actual steady-clock
+time. No real-time deadline guarantee is implied. See the
+[concurrency notes](docs/concurrency.md) for queue policies and sanitizer commands.
 
 ## Dependency strategy
 
@@ -91,7 +135,8 @@ and verifies SHA-256:
 
 GoogleTest and GoogleMock are built from that pinned release; the test target
 links both. Dependencies stay in the build directory. No dependency
-is linked into the application. Changing the dependency requires deliberately
+from GoogleTest is linked into the application. CMake's `Threads::Threads`
+provides platform thread-link requirements. Changing the test dependency requires deliberately
 updating both the URL and hash. An unavailable download fails configuration.
 
 To build only the application without downloading GoogleTest:
@@ -116,14 +161,18 @@ apply to project targets only: GCC/Clang use `-Wall -Wextra -Wpedantic
 -Wconversion -Wsign-conversion -Wshadow`; MSVC uses `/W4 /permissive-
 /Zc:__cplusplus`.
 
-The current verification target is macOS arm64 with Apple Clang. The 98-test
-suite also passed with AddressSanitizer and UndefinedBehaviorSanitizer on that
-platform. Windows, Linux, Intel macOS, and CI remain unverified. Build results
-must be recorded separately from the expected output above.
-
-Actual verification results for the current ECU phase are recorded in
-[the schema and ECU notes](docs/messages.md). Earlier bus results remain in
-[the bus notes](docs/virtual_can_bus.md).
+Concurrent-phase results and exact commands are recorded in
+[the concurrency notes](docs/concurrency.md). On macOS arm64 with Apple Clang,
+all 154 tests passed in Debug, ASan/UBSan, and ThreadSanitizer builds. The 21
+concurrency cases also passed 25 repetitions under TSan, with no reported races.
+The subsequent review added a cancellation regression: all 155 tests passed in
+Debug, ASan/UBSan, and TSan builds. Both cancellation cases passed 25 repetitions
+under TSan. Review corrections and exact executed commands are recorded in the
+same concurrency notes.
+Windows, Linux, Intel macOS, and CI
+remain unverified. Executed results are separate from expected output above.
+Earlier diagnostic-phase results remain in [the diagnostic notes](docs/diagnostics.md),
+[the ECU notes](docs/messages.md) and [the bus notes](docs/virtual_can_bus.md).
 
 ## Git initialization
 

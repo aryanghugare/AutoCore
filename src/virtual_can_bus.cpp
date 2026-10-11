@@ -21,23 +21,36 @@ CanReceiver::CanReceiver(std::initializer_list<CanId> accepted_ids,
     }
 }
 
-bool CanReceiver::accepts(CanId id) const noexcept
+CanReceiver::Admission CanReceiver::enqueue(const CanFrame& frame) noexcept
 {
-    return filter_[id.value()];
-}
-
-bool CanReceiver::enqueue(const CanFrame& frame) noexcept
-{
-    if (closed_ || size_ == slots_.size()) {
-        return false;
+    {
+        const std::lock_guard<std::mutex> lock{mutex_};
+        if (closed_ || !filter_[frame.id().value()]) return Admission::Excluded;
+        if (size_ == slots_.size()) return Admission::Full;
+        const std::size_t tail = (head_ + size_) % slots_.size();
+        slots_[tail].emplace(frame);
+        ++size_;
     }
-    const std::size_t tail = (head_ + size_) % slots_.size();
-    slots_[tail].emplace(frame);
-    ++size_;
-    return true;
+    ready_.notify_one();
+    return Admission::Delivered;
 }
 
 ReceiveResult CanReceiver::try_receive() noexcept
+{
+    const std::lock_guard<std::mutex> lock{mutex_};
+    return pop_locked();
+}
+
+ReceiveResult CanReceiver::receive_until(Timestamp deadline)
+{
+    std::unique_lock<std::mutex> lock{mutex_};
+    if (deadline > Timestamp::clock::now()) {
+        ready_.wait_until(lock, deadline, [this] { return closed_ || size_ != 0; });
+    }
+    return pop_locked();
+}
+
+ReceiveResult CanReceiver::pop_locked() noexcept
 {
     if (closed_) {
         return ReceiveStatus::Closed;
@@ -60,23 +73,28 @@ std::size_t CanReceiver::capacity() const noexcept
 
 std::size_t CanReceiver::pending() const noexcept
 {
+    const std::lock_guard<std::mutex> lock{mutex_};
     return size_;
 }
 
 bool CanReceiver::is_closed() const noexcept
 {
+    const std::lock_guard<std::mutex> lock{mutex_};
     return closed_;
 }
 
 std::size_t CanReceiver::close() noexcept
 {
-    const std::size_t discarded = size_;
-    closed_ = true;
-    for (auto& slot : slots_) {
-        slot.reset();
+    std::size_t discarded;
+    {
+        const std::lock_guard<std::mutex> lock{mutex_};
+        discarded = size_;
+        closed_ = true;
+        for (auto& slot : slots_) slot.reset();
+        head_ = 0;
+        size_ = 0;
     }
-    head_ = 0;
-    size_ = 0;
+    ready_.notify_all();
     return discarded;
 }
 
@@ -98,10 +116,13 @@ std::shared_ptr<CanReceiver> VirtualCanBus::register_receiver(
     const std::string& name, std::initializer_list<CanId> accepted_ids,
     std::size_t capacity)
 {
+    const std::lock_guard<std::mutex> lock{mutex_};
     if (closed_) {
         throw std::logic_error("Cannot register a receiver on a closed bus");
     }
-    if (name.empty() || receiver(name)) {
+    bool duplicate = false;
+    for (const auto& entry : receivers_) duplicate = duplicate || entry.name == name;
+    if (name.empty() || duplicate) {
         throw std::invalid_argument("Receiver name must be nonempty and unique");
     }
     if (receivers_.size() == max_receivers_) {
@@ -115,6 +136,7 @@ std::shared_ptr<CanReceiver> VirtualCanBus::register_receiver(
 
 std::shared_ptr<CanReceiver> VirtualCanBus::receiver(const std::string& name) const
 {
+    const std::lock_guard<std::mutex> lock{mutex_};
     for (const auto& entry : receivers_) {
         if (entry.name == name) {
             return entry.inbox;
@@ -125,6 +147,7 @@ std::shared_ptr<CanReceiver> VirtualCanBus::receiver(const std::string& name) co
 
 bool VirtualCanBus::stop_receiver(const std::string& name) noexcept
 {
+    const std::lock_guard<std::mutex> lock{mutex_};
     for (const auto& entry : receivers_) {
         if (entry.name == name) {
             (void)entry.inbox->close();
@@ -136,6 +159,12 @@ bool VirtualCanBus::stop_receiver(const std::string& name) noexcept
 
 SendResult VirtualCanBus::send(const CanFrame& frame) noexcept
 {
+    const std::lock_guard<std::mutex> lock{mutex_};
+    return route_locked(frame);
+}
+
+SendResult VirtualCanBus::route_locked(const CanFrame& frame) noexcept
+{
     if (closed_) {
         return {SendStatus::Closed, 0, 0};
     }
@@ -146,12 +175,10 @@ SendResult VirtualCanBus::send(const CanFrame& frame) noexcept
 
     SendResult result{SendStatus::Routed, 0, 0};
     for (const auto& entry : receivers_) {
-        if (entry.inbox->is_closed() || !entry.inbox->accepts(frame.id())) {
-            continue;
-        }
-        if (entry.inbox->enqueue(frame)) {
+        const auto admission = entry.inbox->enqueue(frame);
+        if (admission == CanReceiver::Admission::Delivered) {
             ++result.delivered;
-        } else {
+        } else if (admission == CanReceiver::Admission::Full) {
             ++result.dropped;
         }
     }
@@ -161,6 +188,7 @@ SendResult VirtualCanBus::send(const CanFrame& frame) noexcept
 SendResult VirtualCanBus::send_raw(std::int64_t identifier,
     const CanFrame::Payload& payload, std::size_t payload_size, Timestamp timestamp)
 {
+    const std::lock_guard<std::mutex> lock{mutex_};
     if (closed_) {
         return {SendStatus::Closed, 0, 0};
     }
@@ -168,16 +196,18 @@ SendResult VirtualCanBus::send_raw(std::int64_t identifier,
         !CanFrame::is_valid_payload_size(payload_size)) {
         return {SendStatus::InvalidFrame, 0, 0};
     }
-    return send(CanFrame{CanId{identifier}, payload, payload_size, timestamp});
+    return route_locked(CanFrame{CanId{identifier}, payload, payload_size, timestamp});
 }
 
 bool VirtualCanBus::is_closed() const noexcept
 {
+    const std::lock_guard<std::mutex> lock{mutex_};
     return closed_;
 }
 
 std::size_t VirtualCanBus::close() noexcept
 {
+    const std::lock_guard<std::mutex> lock{mutex_};
     closed_ = true;
     std::size_t discarded = 0;
     for (const auto& entry : receivers_) {

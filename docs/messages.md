@@ -56,7 +56,10 @@ concrete ECUs expose the outcome of their latest `on_message()` callback through
 
 Sender references are non-owning and must outlive the producer ECUs. The bus
 does not call ECU methods or hold ECU pointers. An ECU does not reference any
-other ECU. All calls, snapshots, updates, and destruction are single-threaded.
+other ECU. Each ECU's calls, snapshots, updates, and teardown require one
+serialized owner. The [concurrent runtime](concurrency.md) assigns each ECU a
+worker and publishes synchronized snapshots for external readers; direct calls
+to an ECU's getter or setter from another thread remain unsupported.
 There are no hardware, UI, logging-framework, scheduler, or worker dependencies.
 
 `start()` is permitted once. Tick/message calls before start or after stop, and

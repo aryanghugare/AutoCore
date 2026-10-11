@@ -3,10 +3,12 @@
 #include "vaecu/can_transport.hpp"
 
 #include <bitset>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -15,7 +17,7 @@ namespace vaecu {
 
 class VirtualCanBus;
 
-// One receiver's immutable filter and bounded FIFO. Single-threaded only.
+// One receiver's immutable filter and bounded, thread-safe FIFO.
 class CanReceiver final : public ICanReceiver {
 public:
     static constexpr std::size_t default_capacity = 64;
@@ -24,6 +26,9 @@ public:
                          std::size_t capacity = default_capacity);
 
     [[nodiscard]] ReceiveResult try_receive() noexcept override;
+    // Predicate wait: Empty means deadline elapsed; close wakes all waiters
+    // and discards queued frames. A queued frame wins over an elapsed deadline.
+    [[nodiscard]] ReceiveResult receive_until(Timestamp deadline);
     [[nodiscard]] std::size_t capacity() const noexcept;
     [[nodiscard]] std::size_t pending() const noexcept;
     [[nodiscard]] bool is_closed() const noexcept;
@@ -34,9 +39,12 @@ public:
 private:
     friend class VirtualCanBus;
 
-    [[nodiscard]] bool accepts(CanId id) const noexcept;
-    [[nodiscard]] bool enqueue(const CanFrame& frame) noexcept;
+    enum class Admission { Delivered, Full, Excluded };
+    [[nodiscard]] Admission enqueue(const CanFrame& frame) noexcept;
+    [[nodiscard]] ReceiveResult pop_locked() noexcept;
 
+    mutable std::mutex mutex_;
+    std::condition_variable ready_;
     std::bitset<static_cast<std::size_t>(CanId::max_value) + 1> filter_;
     std::vector<std::optional<CanFrame>> slots_;
     std::size_t head_{0};
@@ -44,7 +52,8 @@ private:
     bool closed_{false};
 };
 
-// Synchronous ID-based fan-out; no threads, waits, locks, or arbitration.
+// Thread-safe synchronous fan-out. Sends are serialized, with bus-before-inbox
+// lock order. No callbacks under locks, capacity waits, or arbitration.
 class VirtualCanBus final : public ICanSender {
 public:
     explicit VirtualCanBus(std::size_t max_receivers = 4);
@@ -73,11 +82,13 @@ public:
     [[nodiscard]] std::size_t close() noexcept;
 
 private:
+    [[nodiscard]] SendResult route_locked(const CanFrame& frame) noexcept;
     struct Registration {
         std::string name;
         std::shared_ptr<CanReceiver> inbox;
     };
 
+    mutable std::mutex mutex_;
     std::size_t max_receivers_;
     std::vector<Registration> receivers_;
     bool closed_{false};

@@ -1,10 +1,10 @@
-# Single-threaded virtual CAN bus
+# Virtual CAN bus
 
-This phase implements synchronous message routing with bounded receive queues.
-It creates no threads, locks, waits, callbacks into ECU behavior, or real-time
-guarantees. All bus and inbox operations must run on one thread. Concrete ECU
-behavior is documented in [messages.md](messages.md); the concurrent runtime
-remains a later phase.
+The bus implements synchronous message routing with bounded, thread-safe receive
+queues. It creates no worker threads and never calls ECU behavior. The runtime
+and lock order are documented in [concurrency.md](concurrency.md); concrete ECU
+behavior is documented in [messages.md](messages.md). Earlier verification
+sections below describe the original single-threaded bus phase.
 
 ## Routing and registration
 
@@ -29,8 +29,8 @@ throws `std::length_error`; a closed bus rejects registration with
 `std::logic_error`. Allocation failures propagate without replacing existing
 registrations. Configured limits must be positive.
 
-The bus does not start or stop an `IEcu`. A future runtime will dispatch inbox
-frames to `IEcu::on_message()` and close its inbox when the component stops.
+The bus does not start or stop an `IEcu`. `ConcurrentSimulation` dispatches inbox
+frames to `IEcu::on_message()` and closes the inboxes during cancellation.
 There is no sender authentication or automatic sender exclusion: an inbox
 receives any matching publication. Exclude a publisher's own IDs from its
 filter when loopback is unwanted.
@@ -45,12 +45,15 @@ filter interface is introduced.
 - Default capacity: 64 frames per inbox; any positive capacity is configurable.
 - Storage is allocated once when the inbox is constructed.
 - Successful publications require no additional queue allocation.
-- FIFO order follows the sequence of `send()` calls, independently per inbox.
+- FIFO order follows serialized `send()` admissions, independently per inbox.
+  Concurrent callers are ordered by bus-mutex acquisition, with no fairness guarantee.
 - Numeric identifiers and timestamps never reorder traffic.
 - A full inbox rejects its newest incoming copy, preserving queued frames.
 - Overflow at one inbox does not prevent delivery to another.
 - Empty/filtered/stopped inboxes are not counted as overflow drops.
 - `try_receive()` returns an owned frame, `Empty`, or `Closed` immediately.
+- `receive_until(deadline)` waits on the inbox condition variable, returning an
+  owned frame, `Empty` on deadline, or `Closed`; closure wakes all waiters.
 - `pending()`, `capacity()`, and `is_closed()` expose queue state.
 
 `SendResult` reports successful and overflow-dropped delivery copies.
@@ -90,9 +93,11 @@ Registration returns a shared inbox handle. The bus also owns that inbox, so
 dropping a caller handle does not unregister it. The bus destructor closes all
 inboxes; handles held after destruction remain valid and return `Closed`.
 There is no inbox-to-bus owning reference or ownership cycle.
-Shared ownership protects the inbox's lifetime, not its mutable state. Calls
-through `ICanSender` or `ICanReceiver`, and destruction of the bus, must also
-obey this phase's single-thread contract.
+Shared ownership protects the inbox's lifetime; its mutex protects mutable
+state. Concurrent bus/inbox methods are now supported by the concrete classes,
+though the abstract transport interfaces impose no such guarantee on other
+implementations. External callers must finish using the bus before destroying
+it. `ConcurrentSimulation` owns that lifetime and joins workers first.
 
 ## Changes to foundation interfaces
 
@@ -101,9 +106,9 @@ obey this phase's single-thread contract.
 - `SendStatus::InvalidFrame` is added for raw-envelope rejection.
 - Existing frame, identifier, sender signature, and ECU interfaces are unchanged.
 
-The nonblocking receive operation makes this phase usable and testable without
-OS waiting or a clock. Interruptible timed reception will be a separate concern
-of the later concurrent runtime. Mock tests are updated for this interface.
+The nonblocking interface remains usable and testable without OS waits or a
+clock. Concrete `CanReceiver` now also provides interruptible timed reception;
+existing transport mocks and nonblocking tests retain their interfaces.
 
 ## CAN scope
 

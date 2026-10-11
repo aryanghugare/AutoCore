@@ -60,8 +60,8 @@ public:
     ICanReceiver& operator=(ICanReceiver&&) = delete;
 
     // Return an owned queued frame, Empty, or Closed without waiting.
-    // Closed takes precedence over pending frames. A future concurrent
-    // runtime can add a separate interruptible timed-wait operation.
+    // Closed takes precedence over pending frames. CanReceiver also supplies
+    // a concrete interruptible receive_until() without widening this interface.
     [[nodiscard]] virtual ReceiveResult try_receive() = 0;
 
 protected:
