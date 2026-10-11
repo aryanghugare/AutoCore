@@ -1,5 +1,10 @@
 # Testing and code-quality guide
 
+This guide records the testing phase before the selectable CLI was added.
+For the latest scenario tests, output, and executed results, see
+[the command-line guide](cli.md). Historical counts and output observations
+below describe the version tested in that earlier phase.
+
 ## Coverage review
 
 This is a qualitative review of tested behaviors, not a measured line/branch

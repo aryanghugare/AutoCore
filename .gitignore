@@ -47,3 +47,10 @@ CMakeUserPresets.json
 *.swp
 *.swo
 *~
+
+# Optional dashboard
+node_modules/
+dashboard/dist/
+dashboard/dist-server/
+dashboard/test-results/
+dashboard/playwright-report/

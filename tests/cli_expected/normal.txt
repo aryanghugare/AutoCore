@@ -1,0 +1,19 @@
+Virtual Automotive ECU Platform | scenario=normal | deterministic
+Software CAN simulation | time=relative ms | routing=FIFO
+[0000 ms] RUN started
+[0000 ms] CAN tx=Engine id=0x100 len=4 data=[DC 05 3C 00] routed=2 dropped=0
+[0000 ms] CAN tx=Brake id=0x200 len=1 data=[00] routed=2 dropped=0
+[0000 ms] ECU Engine=ONLINE Brake=ONLINE Dashboard=ONLINE | rpm=1500 speed=60km/h brake=RELEASED | engine=fresh brake=fresh
+[0250 ms] CAN tx=Scenario id=0x300 len=1 data=[01] routed=2 dropped=0
+[0250 ms] CAN tx=Engine id=0x100 len=4 data=[DC 05 3C 00] routed=2 dropped=0
+[0250 ms] CAN tx=Brake id=0x200 len=1 data=[01] routed=2 dropped=0
+[0250 ms] ECU Engine=ONLINE Brake=ONLINE Dashboard=ONLINE | rpm=1500 speed=60km/h brake=APPLIED | engine=fresh brake=fresh
+[0500 ms] CAN tx=Scenario id=0x300 len=1 data=[02] routed=2 dropped=0
+[0500 ms] CAN tx=Engine id=0x100 len=4 data=[DC 05 3C 00] routed=2 dropped=0
+[0500 ms] CAN tx=Brake id=0x200 len=1 data=[00] routed=2 dropped=0
+[0500 ms] ECU Engine=ONLINE Brake=ONLINE Dashboard=ONLINE | rpm=1500 speed=60km/h brake=RELEASED | engine=fresh brake=fresh
+[0500 ms] RUN stopped; resources released
+[0500 ms] ECU Engine=OFFLINE Brake=OFFLINE Dashboard=OFFLINE | rpm=1500 speed=60km/h brake=RELEASED | engine=stale brake=stale
+Summary: duration=500ms CAN=8 routed=16 processed=16 dropped=0
+Diagnostics: raised=0 recovered=0 active=0 lost=0
+Shutdown: all ECUs OFFLINE; pending_discarded=0

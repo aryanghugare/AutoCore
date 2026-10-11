@@ -34,15 +34,32 @@ add_library(vaecu_core STATIC
     src/dashboard_ecu.cpp
     src/diagnostics.cpp
     src/concurrent_simulation.cpp
+    src/demo_scenario.cpp
 )
 target_include_directories(vaecu_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_compile_features(vaecu_core PUBLIC cxx_std_17)
 target_link_libraries(vaecu_core PUBLIC Threads::Threads vaecu_sanitizers)
 vaecu_enable_warnings(vaecu_core)
 
+add_library(vaecu_cli STATIC app/cli.cpp app/concurrent_demo.cpp)
+target_include_directories(vaecu_cli PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/app")
+target_link_libraries(vaecu_cli PUBLIC vaecu_core)
+vaecu_enable_warnings(vaecu_cli)
+
 add_executable(vaecu_sim app/main.cpp)
-target_link_libraries(vaecu_sim PRIVATE vaecu_core)
+target_link_libraries(vaecu_sim PRIVATE vaecu_cli)
 vaecu_enable_warnings(vaecu_sim)
+
+option(VAECU_BUILD_BRIDGE "Build the optional JSON event adapter" OFF)
+if(VAECU_BUILD_BRIDGE)
+    add_library(vaecu_bridge_json STATIC app/bridge_json.cpp)
+    target_include_directories(vaecu_bridge_json PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/app")
+    target_link_libraries(vaecu_bridge_json PUBLIC vaecu_core)
+    vaecu_enable_warnings(vaecu_bridge_json)
+    add_executable(vaecu_bridge app/bridge_main.cpp)
+    target_link_libraries(vaecu_bridge PRIVATE vaecu_bridge_json)
+    vaecu_enable_warnings(vaecu_bridge)
+endif()
 
 include(CTest)
 
@@ -72,10 +89,22 @@ if(BUILD_TESTING)
         tests/diagnostic_integration_test.cpp
         tests/concurrency_test.cpp
         tests/platform_integration_test.cpp
+        tests/demo_scenario_test.cpp
+        tests/cli_test.cpp
     )
-    target_link_libraries(vaecu_tests PRIVATE vaecu_core GTest::gtest_main GTest::gmock)
+    target_link_libraries(vaecu_tests PRIVATE vaecu_cli GTest::gtest_main GTest::gmock)
     vaecu_enable_warnings(vaecu_tests)
+    if(VAECU_BUILD_BRIDGE)
+        target_sources(vaecu_tests PRIVATE tests/bridge_json_test.cpp)
+        target_link_libraries(vaecu_tests PRIVATE vaecu_bridge_json)
+    endif()
 
     include(GoogleTest)
     gtest_discover_tests(vaecu_tests DISCOVERY_MODE PRE_TEST PROPERTIES TIMEOUT 10)
+    foreach(cli_case normal sensor-failure timeout recovery default help invalid concurrent)
+        add_test(NAME CliProcess.${cli_case} COMMAND "${CMAKE_COMMAND}"
+            "-DPROGRAM=$<TARGET_FILE:vaecu_sim>" "-DCASE=${cli_case}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_cli.cmake")
+        set_tests_properties(CliProcess.${cli_case} PROPERTIES TIMEOUT 10)
+    endforeach()
 endif()

@@ -1,0 +1,5 @@
+Virtual Automotive ECU Platform | scenario=sensor-failure | deterministic
+Software CAN simulation | time=relative ms | routing=FIFO
+Summary: duration=500ms CAN=8 routed=16 processed=16 dropped=0
+Diagnostics: raised=1 recovered=0 active=1 lost=0
+Shutdown: all ECUs OFFLINE; pending_discarded=0

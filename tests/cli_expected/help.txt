@@ -1,0 +1,4 @@
+Usage: vaecu_sim [--scenario normal|sensor-failure|timeout|recovery] [--summary-only]
+       vaecu_sim --concurrent
+       vaecu_sim --help
+Default: normal. Scenarios use deterministic simulation time, with no sleeps.

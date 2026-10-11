@@ -4,7 +4,7 @@ A software-only C++17 portfolio project for automotive communication,
 diagnostics, threading, and testing. Engine, Brake, and Dashboard ECUs now
 communicate through a thread-safe virtual CAN bus with exact-ID filters
 and bounded FIFO inboxes. The CLI demonstrates telemetry, brake application,
-stale data, sensor/payload faults, communication timeouts, and recovery. A
+stale data, sensor faults, communication timeouts, and recovery. A
 separate diagnostic observer stores bounded fault records and transition events.
 The default mode uses deterministic callbacks; `--concurrent` runs four workers.
 
@@ -32,9 +32,13 @@ make --version
 CMakeLists.txt                 Core, executable, and test targets
 cmake/Sanitizers.cmake         Optional sanitizer support checks and flags
 .clang-tidy                   Recommended static-analysis checks
-app/main.cpp                   Deterministic and concurrent demonstrations
+app/main.cpp                   Thin executable entry point
+app/cli.cpp                    Argument parsing and trace formatting
+app/concurrent_demo.cpp        Existing concurrent demonstration
+app/bridge_main.cpp            Optional live JSON adapter (VAECU_BUILD_BRIDGE)
+dashboard/                    Optional React/TypeScript UI and local HTTP adapter
 include/vaecu/                 Frame, transport, message schema, and ECU declarations
-src/                          Frame, codecs, virtual bus, and ECU implementation
+src/                          Frame, codecs, virtual bus, ECUs, and scenario runner
 tests/                        GoogleTest and GoogleMock tests
 docs/foundations.md            Public contracts and ownership rules
 docs/virtual_can_bus.md        Routing, queue, closure, and interface changes
@@ -42,9 +46,13 @@ docs/messages.md               Message encoding, ECU behavior, and freshness
 docs/diagnostics.md            Fault identifiers, detection, records, and recovery
 docs/concurrency.md            Worker ownership, waits, cancellation, and sanitizers
 docs/testing.md                Coverage review, quality checks, and sanitizer options
+docs/cli.md                    Scenario timelines, output, exit codes, and verification
+docs/dashboard.md              Local dashboard launch, protocol, and verification
 ```
 
-`vaecu_core` is a static library. `vaecu_sim` links it without test dependencies.
+`vaecu_core` is a static library independent of terminal presentation.
+`vaecu_cli` links the core and supplies argument parsing and formatting;
+`vaecu_sim` links the CLI without test dependencies.
 See [the public contracts](docs/foundations.md) and
 [the bus contracts](docs/virtual_can_bus.md) for interface details. Message IDs,
 byte layouts, units, and ECU behavior are defined in
@@ -73,7 +81,7 @@ build includes `Built target vaecu_sim` and `Built target vaecu_tests`.
 Expected test summary (after a successful test-enabled build):
 
 ```text
-100% tests passed, 0 tests failed out of 162
+100% tests passed, 0 tests failed out of 189
 ```
 
 The suite covers identifier/frame validation, interface mockability, routing,
@@ -82,27 +90,36 @@ closure, explicit message codecs, concrete ECU lifecycle and behavior,
 dashboard freshness, recovery, communication between ECUs, diagnostic storage,
 duplicate suppression, missing/stale data, sensor/payload faults, and timeout
 boundaries. Component tests retain injected time; concurrency tests use actual
-threads and bounded condition-variable waits.
-Expected executable output:
+threads and bounded condition-variable waits. New tests cover fixed scenario
+plans, repeatable logs, communication status, diagnostic recovery, argument
+validation, output failures, and executable exit codes.
+
+Select a scenario (no arguments selects `normal`):
+
+```sh
+./build/vaecu_sim --scenario normal
+./build/vaecu_sim --scenario sensor-failure
+./build/vaecu_sim --scenario timeout
+./build/vaecu_sim --scenario recovery
+./build/vaecu_sim --scenario recovery --summary-only
+./build/vaecu_sim --help
+```
+
+Expected output for `--scenario recovery --summary-only`:
 
 ```text
-normal: engine=fresh rpm=1500 speed_kph=60 brake=fresh applied=false
-apply: engine=fresh rpm=2500 speed_kph=80 brake=fresh applied=true
-diagnostic: code=0x1001 active time_ms=200
-diagnostic: code=0x1001 recovered time_ms=300
-diagnostic: code=0x1103 active time_ms=400
-stale: engine=stale rpm=2500 speed_kph=80 brake=stale applied=true
-diagnostic: code=0x1102 active time_ms=600
-diagnostic: code=0x1202 active time_ms=600
-diagnostic: code=0x1104 active time_ms=1400
-diagnostic: code=0x1204 active time_ms=1400
-recovery: engine=fresh rpm=2500 speed_kph=80 brake=fresh applied=true
-diagnostic: code=0x1103 recovered time_ms=1500
-diagnostic: code=0x1102 recovered time_ms=1500
-diagnostic: code=0x1104 recovered time_ms=1500
-diagnostic: code=0x1202 recovered time_ms=1500
-diagnostic: code=0x1204 recovered time_ms=1500
+Virtual Automotive ECU Platform | scenario=recovery | deterministic
+Software CAN simulation | time=relative ms | routing=FIFO
+Summary: duration=1500ms CAN=12 routed=24 processed=24 dropped=0
+Diagnostics: raised=3 recovered=3 active=0 lost=0
+Shutdown: all ECUs OFFLINE; pending_discarded=0
 ```
+
+Detailed output includes relative timestamps, hex IDs and payloads, online/offline
+status, and fault transitions. Scenarios run without wall-clock sleeps. Engine
+becomes offline at the communication-timeout threshold, independently of sensor
+validity and signal freshness. See [the CLI guide](docs/cli.md) for complete
+normal output, all scenario outcomes, and their timing policies.
 
 To run the concurrent demonstration:
 
@@ -172,14 +189,42 @@ The subsequent review added a cancellation regression: all 155 tests passed in
 Debug, ASan/UBSan, and TSan builds. Both cancellation cases passed 25 repetitions
 under TSan. Review corrections and exact executed commands are recorded in the
 same concurrency notes.
-The current testing pass adds complete ECU flows and mock fault scenarios. See
+The earlier testing pass added complete ECU flows and mock fault scenarios. See
 [the testing guide](docs/testing.md) for the coverage review, opt-in
 `VAECU_ENABLE_ASAN`, `VAECU_ENABLE_UBSAN`, and separate `VAECU_ENABLE_TSAN` builds,
-recommended clang-tidy checks, and current executed results.
+recommended clang-tidy checks, and that pass's executed results.
+The latest CLI-phase build/test results are recorded in [the CLI guide](docs/cli.md).
+The optional dashboard build and verification are recorded in
+[the dashboard guide](docs/dashboard.md).
 Windows, Linux, Intel macOS, and CI
 remain unverified. Executed results are separate from expected output above.
 Earlier diagnostic-phase results remain in [the diagnostic notes](docs/diagnostics.md),
 [the ECU notes](docs/messages.md) and [the bus notes](docs/virtual_can_bus.md).
+
+## Optional React dashboard
+
+The dashboard adds ECU cards, live RPM/speed, a bounded CAN table, fault and
+recovery records, and validated start/stop/scenario controls. It uses a loopback
+HTTP adapter managing the C++ JSON subprocess. Node/frontend dependencies are
+optional; the CLI and core remain independent.
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DVAECU_BUILD_BRIDGE=ON
+cmake --build build --parallel 2
+ctest --test-dir build --output-on-failure --no-tests=error
+cd dashboard
+npm ci
+npm run build
+npm test
+```
+
+Then run `npm run server` and `npm run dev` in separate terminals inside
+`dashboard/`, and open http://127.0.0.1:5173. Requires Node 22.12 or newer.
+The bridge-enabled C++ suite contains 194 tests; the default bridge-disabled
+suite contains 189. An existing CMake cache retains the bridge option until
+explicitly changed. See [the dashboard guide](docs/dashboard.md) for architecture,
+schemas, Windows executable paths, commands, actual test results, and local
+transport verification limitations.
 
 ## Git initialization
 
