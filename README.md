@@ -30,6 +30,8 @@ make --version
 
 ```text
 CMakeLists.txt                 Core, executable, and test targets
+cmake/Sanitizers.cmake         Optional sanitizer support checks and flags
+.clang-tidy                   Recommended static-analysis checks
 app/main.cpp                   Deterministic and concurrent demonstrations
 include/vaecu/                 Frame, transport, message schema, and ECU declarations
 src/                          Frame, codecs, virtual bus, and ECU implementation
@@ -39,6 +41,7 @@ docs/virtual_can_bus.md        Routing, queue, closure, and interface changes
 docs/messages.md               Message encoding, ECU behavior, and freshness
 docs/diagnostics.md            Fault identifiers, detection, records, and recovery
 docs/concurrency.md            Worker ownership, waits, cancellation, and sanitizers
+docs/testing.md                Coverage review, quality checks, and sanitizer options
 ```
 
 `vaecu_core` is a static library. `vaecu_sim` links it without test dependencies.
@@ -70,7 +73,7 @@ build includes `Built target vaecu_sim` and `Built target vaecu_tests`.
 Expected test summary (after a successful test-enabled build):
 
 ```text
-100% tests passed, 0 tests failed out of 155
+100% tests passed, 0 tests failed out of 162
 ```
 
 The suite covers identifier/frame validation, interface mockability, routing,
@@ -158,7 +161,7 @@ verification; verify the official archive before extracting it.
 
 C++17 is required explicitly and compiler extensions are disabled. Warnings
 apply to project targets only: GCC/Clang use `-Wall -Wextra -Wpedantic
--Wconversion -Wsign-conversion -Wshadow`; MSVC uses `/W4 /permissive-
+-Wconversion -Wsign-conversion -Wshadow -Wnon-virtual-dtor -Woverloaded-virtual`; MSVC uses `/W4 /permissive-
 /Zc:__cplusplus`.
 
 Concurrent-phase results and exact commands are recorded in
@@ -169,6 +172,10 @@ The subsequent review added a cancellation regression: all 155 tests passed in
 Debug, ASan/UBSan, and TSan builds. Both cancellation cases passed 25 repetitions
 under TSan. Review corrections and exact executed commands are recorded in the
 same concurrency notes.
+The current testing pass adds complete ECU flows and mock fault scenarios. See
+[the testing guide](docs/testing.md) for the coverage review, opt-in
+`VAECU_ENABLE_ASAN`, `VAECU_ENABLE_UBSAN`, and separate `VAECU_ENABLE_TSAN` builds,
+recommended clang-tidy checks, and current executed results.
 Windows, Linux, Intel macOS, and CI
 remain unverified. Executed results are separate from expected output above.
 Earlier diagnostic-phase results remain in [the diagnostic notes](docs/diagnostics.md),

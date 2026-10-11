@@ -11,6 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Threads REQUIRED)
+include(cmake/Sanitizers.cmake)
 
 function(vaecu_enable_warnings target)
     if(MSVC)
@@ -18,6 +19,7 @@ function(vaecu_enable_warnings target)
     elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(${target} PRIVATE
             -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow
+            -Wnon-virtual-dtor -Woverloaded-virtual
         )
     endif()
 endfunction()
@@ -35,7 +37,7 @@ add_library(vaecu_core STATIC
 )
 target_include_directories(vaecu_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_compile_features(vaecu_core PUBLIC cxx_std_17)
-target_link_libraries(vaecu_core PUBLIC Threads::Threads)
+target_link_libraries(vaecu_core PUBLIC Threads::Threads vaecu_sanitizers)
 vaecu_enable_warnings(vaecu_core)
 
 add_executable(vaecu_sim app/main.cpp)
@@ -69,10 +71,11 @@ if(BUILD_TESTING)
         tests/diagnostics_test.cpp
         tests/diagnostic_integration_test.cpp
         tests/concurrency_test.cpp
+        tests/platform_integration_test.cpp
     )
     target_link_libraries(vaecu_tests PRIVATE vaecu_core GTest::gtest_main GTest::gmock)
     vaecu_enable_warnings(vaecu_tests)
 
     include(GoogleTest)
-    gtest_discover_tests(vaecu_tests PROPERTIES TIMEOUT 10)
+    gtest_discover_tests(vaecu_tests DISCOVERY_MODE PRE_TEST PROPERTIES TIMEOUT 10)
 endif()

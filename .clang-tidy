@@ -1,0 +1,10 @@
+Checks: >-
+  -*,
+  clang-analyzer-core.*,
+  clang-analyzer-cplusplus.*,
+  bugprone-use-after-move,
+  bugprone-unused-raii,
+  performance-unnecessary-value-param,
+  modernize-use-override
+WarningsAsErrors: ''
+HeaderFilterRegex: '(^|/)(include/vaecu|src|app)/'

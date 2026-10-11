@@ -1,0 +1,56 @@
+option(VAECU_ENABLE_ASAN "Enable AddressSanitizer for project targets" OFF)
+option(VAECU_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer for project targets" OFF)
+option(VAECU_ENABLE_TSAN "Enable ThreadSanitizer in a separate build" OFF)
+
+if(VAECU_ENABLE_TSAN AND (VAECU_ENABLE_ASAN OR VAECU_ENABLE_UBSAN))
+    message(FATAL_ERROR "Use a separate build for TSan; disable ASan and UBSan")
+endif()
+
+function(vaecu_configure_sanitizers)
+    add_library(vaecu_sanitizers INTERFACE)
+    if(NOT (VAECU_ENABLE_ASAN OR VAECU_ENABLE_UBSAN OR VAECU_ENABLE_TSAN))
+        return()
+    endif()
+    if(MSVC OR NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        message(FATAL_ERROR "Sanitizer options require GCC or a Clang compiler with GNU-style flags; this compiler mode is not supported")
+    endif()
+
+    set(sanitizers "")
+    if(VAECU_ENABLE_ASAN)
+        list(APPEND sanitizers address)
+    endif()
+    if(VAECU_ENABLE_UBSAN)
+        list(APPEND sanitizers undefined)
+    endif()
+    if(VAECU_ENABLE_TSAN)
+        list(APPEND sanitizers thread)
+    endif()
+    list(JOIN sanitizers "," sanitizer_names)
+    list(JOIN sanitizers "_" sanitizer_check_suffix)
+    set(sanitizer_flag "-fsanitize=${sanitizer_names}")
+    set(sanitizer_check "VAECU_SUPPORTS_${sanitizer_check_suffix}")
+
+    include(CheckCXXSourceCompiles)
+    include(CMakePushCheckState)
+    cmake_push_check_state(RESET)
+    set(CMAKE_REQUIRED_FLAGS "${sanitizer_flag} -fno-omit-frame-pointer")
+    set(CMAKE_REQUIRED_LINK_OPTIONS "${sanitizer_flag}")
+    # Verify the runtime links too, even with a toolchain that defaults to
+    # static-library try-compiles. This function keeps the override local.
+    set(CMAKE_TRY_COMPILE_TARGET_TYPE EXECUTABLE)
+    check_cxx_source_compiles("int main() { return 0; }" ${sanitizer_check})
+    cmake_pop_check_state()
+    if(NOT ${sanitizer_check})
+        message(FATAL_ERROR "Requested sanitizer compile/link check failed: ${sanitizer_names}")
+    endif()
+
+    target_compile_options(vaecu_sanitizers INTERFACE
+        "${sanitizer_flag}" -fno-omit-frame-pointer)
+    target_link_options(vaecu_sanitizers INTERFACE "${sanitizer_flag}")
+    if(VAECU_ENABLE_UBSAN)
+        # A detected violation must fail the test, not just print a warning.
+        target_compile_options(vaecu_sanitizers INTERFACE -fno-sanitize-recover=undefined)
+    endif()
+endfunction()
+
+vaecu_configure_sanitizers()

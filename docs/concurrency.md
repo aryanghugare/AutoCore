@@ -6,6 +6,10 @@ threads. No worker is detached. Existing ECU APIs remain deterministic when
 called directly with injected timestamps; the default CLI still uses that mode.
 Run `./build/vaecu_sim --concurrent` for the real-clock demonstration.
 
+Current opt-in CMake sanitizer builds and the latest test results are documented
+in [the testing guide](testing.md). The manual flag commands and results below
+retain the history of the concurrent implementation and its first review.
+
 ## Ownership and synchronization
 
 | State | Owner / synchronization |

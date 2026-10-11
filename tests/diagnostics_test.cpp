@@ -457,6 +457,27 @@ TEST(DiagnosticMonitorTest, ThrowingSinkDoesNotCommitTheFailedTransition)
     monitor.stop();
 }
 
+TEST(DiagnosticMonitorTest, PartialSinkFailureRetriesOnlyTheUncommittedFault)
+{
+    StrictMock<MockSink> sink;
+    DiagnosticMonitor monitor{sink, quick};
+    monitor.start(at(0ms));
+    {
+        testing::InSequence ordered;
+        EXPECT_CALL(sink, set_fault(FaultId::EngineMessageMissing, true, at(100ms)));
+        EXPECT_CALL(sink, set_fault(FaultId::BrakeMessageMissing, true, at(100ms)))
+            .WillOnce(testing::Throw(std::runtime_error{"second fault rejected"}));
+        EXPECT_CALL(sink, set_fault(FaultId::BrakeMessageMissing, true, at(100ms)));
+        EXPECT_CALL(sink, set_fault(FaultId::EngineMessageMissing, false, at(110ms)));
+    }
+    EXPECT_THROW(monitor.on_tick(at(100ms)), std::runtime_error);
+    EXPECT_THROW(monitor.on_tick(at(99ms)), std::invalid_argument);
+    monitor.on_tick(at(100ms)); // Engine transition already committed; no repeat.
+    monitor.on_tick(at(101ms));
+    monitor.on_message(msg::encode_engine({}, at(110ms)), at(110ms));
+    monitor.stop();
+}
+
 TEST(DiagnosticMonitorTest, RejectsNonPositiveDurations)
 {
     StrictMock<MockSink> sink;
