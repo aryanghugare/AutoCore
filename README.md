@@ -1,23 +1,82 @@
-# Virtual Automotive ECU Platform
+# Virtual Automotive ECU Communication, Diagnostics & Testing Platform
 
-A software-only C++17 portfolio project for automotive communication,
-diagnostics, threading, and testing. Engine, Brake, and Dashboard ECUs now
-communicate through a thread-safe virtual CAN bus with exact-ID filters
-and bounded FIFO inboxes. The CLI demonstrates telemetry, brake application,
-stale data, sensor faults, communication timeouts, and recovery. A
-separate diagnostic observer stores bounded fault records and transition events.
-The default mode uses deterministic callbacks; `--concurrent` runs four workers.
+A **software-only C++17 portfolio project** that simulates Engine, Brake and
+Dashboard ECU behavior over a CAN-inspired virtual bus. It demonstrates explicit
+message encoding, interface-based design, diagnostics, bounded queues, portable
+threading, automated tests and reproducible command-line scenarios.
 
-## Requirements
+No ECU, microcontroller, sensor, CAN adapter or other automotive hardware is
+required. This is a host application, not production firmware or a certified
+vehicle system.
 
-- CMake 3.25 or newer.
-- A C++17 compiler and a compatible build tool.
-- macOS Apple Silicon: Apple Clang and the macOS SDK from Xcode or Command Line
-  Tools, plus Make (provided by the Apple tools).
-- Network access to GitHub for the first test-enabled configuration.
+## What is implemented
 
-If Apple Command Line Tools are missing, run `xcode-select --install` and
-complete the installer. Verify the tools with:
+- Engine publishes simulated RPM and vehicle speed; Brake consumes Apply/Release
+  events and publishes state; Dashboard consumes telemetry with explicit freshness.
+- Validated 11-bit IDs, fixed eight-byte frame storage, exact-ID filtering,
+  serialized FIFO routing and per-receiver overflow reporting.
+- A separate diagnostic monitor/storage pair records sensor, payload, missing,
+  stale and communication-timeout faults, duplicate suppression and recovery.
+- Deterministic scenarios use injected logical time. A separate concurrent mode
+  runs three ECU workers and one diagnostic observer with coordinated startup,
+  cancellation, blocking waits, synchronized reports and joined shutdown.
+- CLI logs include relative time, hex IDs/payloads, availability and fault transitions.
+- An optional React/TypeScript dashboard uses a managed C++ child and local HTTP
+  adapter. The core has no frontend, JSON or networking dependency.
+
+## Architecture
+
+| Component | Responsibility |
+| --- | --- |
+| `CanId`, `CanFrame`, `messages` | Validated values and explicit little-endian signal codecs |
+| `IEcu`, `ICanSender`, `ICanReceiver`, `IDiagnosticSink` | Small testable behavior/transport/storage interfaces |
+| `VirtualCanBus`, `CanReceiver` | Synchronous fan-out, exact filters, owned queued copies and interruptible reception |
+| `EngineEcu`, `BrakeEcu`, `DashboardEcu` | Independent behavior and display-ready state, without UI/thread ownership |
+| `DiagnosticMonitor`, `DiagnosticStore` | Detection separated from synchronized records and bounded events |
+| `run_demo_scenario` | Fresh deterministic Session, real event trace, optional synchronous host hooks |
+| `ConcurrentSimulation` | Owns four workers, behavior objects, inbox handles and reporting synchronization |
+| `vaecu_cli`, `vaecu_sim` | Argument parsing, presentation and CLI entry point |
+| `vaecu_bridge`, optional `dashboard/` | Real JSON-line events, validated HTTP commands and React presentation |
+
+Default inbox capacity is 64 frames and the bus permits four registrations.
+Overflow rejects the newest copy for a full receiver without blocking other
+receivers. Concurrent send admission is serialized; this is **routing, not CAN
+arbitration**. Closing a CAN inbox discards pending frames and wakes waiters.
+Diagnostic storage retains one record per known fault and the latest 64 events;
+event overflow replaces the oldest and counts loss. Its closed feed remains
+readable. Concrete ECU calls require one serialized owner; the runtime supplies
+thread ownership rather than embedding locks/threads in every ECU.
+
+Source-matched [UML class, component and sequence diagrams](docs/uml.md),
+[architecture decision records](docs/adr/README.md), and
+[the final engineering/portfolio review](docs/final-review.md) explain these choices.
+
+The canonical [message schema](docs/messages.md) defines:
+
+| ID | Payload | Flow |
+| --- | --- | --- |
+| `0x100` | 4 bytes: uint16 RPM, uint16 whole km/h, little-endian | Engine to Dashboard and diagnostics |
+| `0x200` | 1 byte: released=0, applied=1 | Brake to Dashboard and diagnostics |
+| `0x300` | 1 byte: Apply=1, Release=2 | Scenario to Brake and diagnostics |
+
+RPM is limited to 0..9000 and speed to 0..300 km/h by this simulation's schema.
+Timestamp is process-local publication time, not payload data or UTC.
+See [diagnostic contracts](docs/diagnostics.md) for the project-specific fault catalog.
+
+## Prerequisites
+
+- CMake **3.25+**, a C++17 compiler and a compatible build tool.
+- macOS Apple Silicon: Apple Clang, macOS SDK and Make from Xcode/Command Line
+  Tools. Intel macOS is a source-level target, not locally verified here.
+- Linux x64: GCC or Clang with C++17 support and Make or Ninja.
+- Windows 10/11 x64: Visual Studio 2022 Build Tools, the Desktop development with
+  C++ workload, MSVC and a Windows SDK. Use a developer terminal.
+- First test-enabled configure normally needs GitHub access for GoogleTest.
+- Optional dashboard only: Node **22.12+**, npm, registry access for `npm ci`,
+  and a browser supporting `AbortSignal.timeout`/`AbortSignal.any`.
+
+On macOS, install Command Line Tools with `xcode-select --install` if needed.
+CMake and optional Node/npm must already be installed. Verify with:
 
 ```sh
 cmake --version
@@ -26,75 +85,59 @@ xcrun --show-sdk-path
 make --version
 ```
 
-## Structure
+Minimum C++ language support is enforced by CMake; no specific untested minimum
+compiler version is claimed. Actual local verification used Apple Clang 21.0.0,
+CMake 4.2.3 and Node 22.22.0. Windows/Linux commands below are provided from the
+portable build configuration but have not been executed on those OSes here.
 
-```text
-CMakeLists.txt                 Core, executable, and test targets
-cmake/Sanitizers.cmake         Optional sanitizer support checks and flags
-.clang-tidy                   Recommended static-analysis checks
-app/main.cpp                   Thin executable entry point
-app/cli.cpp                    Argument parsing and trace formatting
-app/concurrent_demo.cpp        Existing concurrent demonstration
-app/bridge_main.cpp            Optional live JSON adapter (VAECU_BUILD_BRIDGE)
-dashboard/                    Optional React/TypeScript UI and local HTTP adapter
-include/vaecu/                 Frame, transport, message schema, and ECU declarations
-src/                          Frame, codecs, virtual bus, ECUs, and scenario runner
-tests/                        GoogleTest and GoogleMock tests
-docs/foundations.md            Public contracts and ownership rules
-docs/virtual_can_bus.md        Routing, queue, closure, and interface changes
-docs/messages.md               Message encoding, ECU behavior, and freshness
-docs/diagnostics.md            Fault identifiers, detection, records, and recovery
-docs/concurrency.md            Worker ownership, waits, cancellation, and sanitizers
-docs/testing.md                Coverage review, quality checks, and sanitizer options
-docs/cli.md                    Scenario timelines, output, exit codes, and verification
-docs/dashboard.md              Local dashboard launch, protocol, and verification
-```
+## Build, test and run the C++ CLI
 
-`vaecu_core` is a static library independent of terminal presentation.
-`vaecu_cli` links the core and supplies argument parsing and formatting;
-`vaecu_sim` links the CLI without test dependencies.
-See [the public contracts](docs/foundations.md) and
-[the bus contracts](docs/virtual_can_bus.md) for interface details. Message IDs,
-byte layouts, units, and ECU behavior are defined in
-[the simulation schema](docs/messages.md).
-The [diagnostic contracts](docs/diagnostics.md) define the fault catalog and
-deterministic timing policy. The diagnostics are project-specific and do not
-implement UDS services.
-The [concurrent runtime contracts](docs/concurrency.md) describe synchronization
-and bounded reporting. ECU behavior objects still require serialized calls.
-
-## Build, test, and run on macOS Apple Silicon
-
-Run these commands from the repository root:
+From the repository root on macOS/Linux:
 
 ```sh
-cmake -S . -B build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=/usr/bin/clang++ -DCMAKE_OSX_ARCHITECTURES=arm64 -DBUILD_TESTING=ON
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DVAECU_BUILD_BRIDGE=OFF
 cmake --build build --parallel 2
 ctest --test-dir build --output-on-failure --no-tests=error
 ./build/vaecu_sim
 ```
 
-Configuration should finish with `Configuring done`, `Generating done`, and
-the build directory path. Build progress varies by CMake version. A successful
-build includes `Built target vaecu_sim` and `Built target vaecu_tests`.
+The default compiler/generator follows the installed toolchain. On Apple
+Silicon an explicit configure variant is:
 
-Expected test summary (after a successful test-enabled build):
-
-```text
-100% tests passed, 0 tests failed out of 189
+```sh
+cmake -S . -B build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=/usr/bin/clang++ -DCMAKE_OSX_ARCHITECTURES=arm64 -DBUILD_TESTING=ON -DVAECU_BUILD_BRIDGE=OFF
 ```
 
-The suite covers identifier/frame validation, interface mockability, routing,
-filtering, FIFO ordering, malformed envelopes, overflow, unknown receivers, and
-closure, explicit message codecs, concrete ECU lifecycle and behavior,
-dashboard freshness, recovery, communication between ECUs, diagnostic storage,
-duplicate suppression, missing/stale data, sensor/payload faults, and timeout
-boundaries. Component tests retain injected time; concurrency tests use actual
-threads and bounded condition-variable waits. New tests cover fixed scenario
-plans, repeatable logs, communication status, diagnostic recovery, argument
-validation, output failures, and executable exit codes.
+On Linux, optionally add `-DCMAKE_CXX_COMPILER=g++` or
+`-DCMAKE_CXX_COMPILER=clang++`. Use a fresh build directory when changing
+compiler, generator or architecture.
 
-Select a scenario (no arguments selects `normal`):
+Windows PowerShell, from a Visual Studio developer terminal:
+
+```powershell
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_TESTING=ON -DVAECU_BUILD_BRIDGE=OFF
+cmake --build build --config Debug --parallel 2
+ctest --test-dir build -C Debug --output-on-failure --no-tests=error
+.\build\Debug\vaecu_sim.exe --scenario recovery --summary-only
+```
+
+Expected successful test summary: **189 tests** with the bridge OFF; **194 tests**
+with it ON. The bridge option is explicit above because CMake caches options.
+These counts are regression cases, not coverage percentages. See the
+[verification record](docs/final-review.md#executed-verification) for actual runs.
+
+For a build without GoogleTest or Node:
+
+```sh
+cmake -S . -B build-app -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=OFF -DVAECU_BUILD_BRIDGE=OFF
+cmake --build build-app --parallel 2
+./build-app/vaecu_sim --scenario normal
+```
+
+## Run the four demonstration scenarios
+
+Each command creates a fresh Session and completes automatically. No arguments
+select Normal. These four CLI scenarios use logical time and **do not sleep**.
 
 ```sh
 ./build/vaecu_sim --scenario normal
@@ -105,7 +148,21 @@ Select a scenario (no arguments selects `normal`):
 ./build/vaecu_sim --help
 ```
 
-Expected output for `--scenario recovery --summary-only`:
+On Windows replace the executable prefix with `.\build\Debug\vaecu_sim.exe`.
+
+| Scenario | What to observe | Logical duration | CAN transmissions | Raised / recovered / active |
+| --- | --- | ---: | ---: | --- |
+| `normal` | Healthy telemetry, Apply at 250 ms and Release at 500 ms | 500 ms | 8 | 0 / 0 / 0 |
+| `sensor-failure` | Invalid raw RPM from 250 ms; last valid input retained | 500 ms | 8 | 1 / 0 / 1 |
+| `timeout` | Engine silent from 250 ms; stale at 500 ms, timeout at 1000 ms | 1500 ms | 10 | 2 / 0 / 2 |
+| `recovery` | Sensor failure and Engine silence; restored at 1250 ms | 1500 ms | 12 | 3 / 3 / 0 |
+
+All durations are simulated timestamps, not benchmark measurements. Brake
+continues publishing during Engine silence. Stop does not clear active faults.
+Online/offline here indicates simulated communication availability, not a claim
+about a physical ECU's electrical state.
+
+Actual recovery summary from the verified CLI:
 
 ```text
 Virtual Automotive ECU Platform | scenario=recovery | deterministic
@@ -115,98 +172,32 @@ Diagnostics: raised=3 recovered=3 active=0 lost=0
 Shutdown: all ECUs OFFLINE; pending_discarded=0
 ```
 
-Detailed output includes relative timestamps, hex IDs and payloads, online/offline
-status, and fault transitions. Scenarios run without wall-clock sleeps. Engine
-becomes offline at the communication-timeout threshold, independently of sensor
-validity and signal freshness. See [the CLI guide](docs/cli.md) for complete
-normal output, all scenario outcomes, and their timing policies.
+A normal telemetry line is:
 
-To run the concurrent demonstration:
+```text
+[0000 ms] CAN tx=Engine id=0x100 len=4 data=[DC 05 3C 00] routed=2 dropped=0
+```
+
+`routed` counts admitted receiver copies; `processed` counts actual dispatches.
+See [the CLI guide](docs/cli.md) for complete logs, timelines and exit-code rules.
+
+The separate real-thread demonstration is:
 
 ```sh
 ./build/vaecu_sim --concurrent
 ```
 
-It publishes telemetry, applies the brake, pauses Engine publication until a
-communication timeout, resumes it, and joins the workers. A typical successful
-run prints:
+It waits for normal telemetry, applies Brake, pauses Engine publication, detects
+its timeout, resumes publication and joins the four workers. Scheduling uses
+real steady-clock time and is not deterministic. Successful output includes:
 
 ```text
-concurrent normal: engine=fresh rpm=1500 speed_kph=60 brake=fresh applied=false
-concurrent apply: engine=fresh rpm=1500 speed_kph=60 brake=fresh applied=true
-concurrent timeout: engine=stale rpm=1500 speed_kph=60 brake=fresh applied=true
-concurrent recovery: engine=fresh rpm=1500 speed_kph=60 brake=fresh applied=true
 concurrent shutdown: workers joined
 ```
 
-Scheduling is not deterministic; timeout detection uses actual steady-clock
-time. No real-time deadline guarantee is implied. See the
-[concurrency notes](docs/concurrency.md) for queue policies and sanitizer commands.
+## Optional React/TypeScript dashboard
 
-## Dependency strategy
-
-Tests are enabled by default through CMake's `BUILD_TESTING` option.
-`FetchContent` downloads GoogleTest 1.17.0 from its official release archive
-and verifies SHA-256:
-
-```text
-65fab701d9829d38cb77c14acdc431d2108bfdbf8979e40eb8ae567edf10b27c
-```
-
-GoogleTest and GoogleMock are built from that pinned release; the test target
-links both. Dependencies stay in the build directory. No dependency
-from GoogleTest is linked into the application. CMake's `Threads::Threads`
-provides platform thread-link requirements. Changing the test dependency requires deliberately
-updating both the URL and hash. An unavailable download fails configuration.
-
-To build only the application without downloading GoogleTest:
-
-```sh
-cmake -S . -B build-app -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=/usr/bin/clang++ -DCMAKE_OSX_ARCHITECTURES=arm64 -DBUILD_TESTING=OFF
-cmake --build build-app --parallel 2
-./build-app/vaecu_sim
-```
-
-This does not build or execute tests.
-
-For an offline test build, use an existing trusted extraction of GoogleTest
-1.17.0 by adding `-DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/absolute/path/to/googletest-1.17.0`
-to the test-enabled configure command. This override skips archive hash
-verification; verify the official archive before extracting it.
-
-## Portability and verification
-
-C++17 is required explicitly and compiler extensions are disabled. Warnings
-apply to project targets only: GCC/Clang use `-Wall -Wextra -Wpedantic
--Wconversion -Wsign-conversion -Wshadow -Wnon-virtual-dtor -Woverloaded-virtual`; MSVC uses `/W4 /permissive-
-/Zc:__cplusplus`.
-
-Concurrent-phase results and exact commands are recorded in
-[the concurrency notes](docs/concurrency.md). On macOS arm64 with Apple Clang,
-all 154 tests passed in Debug, ASan/UBSan, and ThreadSanitizer builds. The 21
-concurrency cases also passed 25 repetitions under TSan, with no reported races.
-The subsequent review added a cancellation regression: all 155 tests passed in
-Debug, ASan/UBSan, and TSan builds. Both cancellation cases passed 25 repetitions
-under TSan. Review corrections and exact executed commands are recorded in the
-same concurrency notes.
-The earlier testing pass added complete ECU flows and mock fault scenarios. See
-[the testing guide](docs/testing.md) for the coverage review, opt-in
-`VAECU_ENABLE_ASAN`, `VAECU_ENABLE_UBSAN`, and separate `VAECU_ENABLE_TSAN` builds,
-recommended clang-tidy checks, and that pass's executed results.
-The latest CLI-phase build/test results are recorded in [the CLI guide](docs/cli.md).
-The optional dashboard build and verification are recorded in
-[the dashboard guide](docs/dashboard.md).
-Windows, Linux, Intel macOS, and CI
-remain unverified. Executed results are separate from expected output above.
-Earlier diagnostic-phase results remain in [the diagnostic notes](docs/diagnostics.md),
-[the ECU notes](docs/messages.md) and [the bus notes](docs/virtual_can_bus.md).
-
-## Optional React dashboard
-
-The dashboard adds ECU cards, live RPM/speed, a bounded CAN table, fault and
-recovery records, and validated start/stop/scenario controls. It uses a loopback
-HTTP adapter managing the C++ JSON subprocess. Node/frontend dependencies are
-optional; the CLI and core remain independent.
+Enable and build the managed C++ bridge first:
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DVAECU_BUILD_BRIDGE=ON
@@ -218,16 +209,107 @@ npm run build
 npm test
 ```
 
-Then run `npm run server` and `npm run dev` in separate terminals inside
-`dashboard/`, and open http://127.0.0.1:5173. Requires Node 22.12 or newer.
-The bridge-enabled C++ suite contains 194 tests; the default bridge-disabled
-suite contains 189. An existing CMake cache retains the bridge option until
-explicitly changed. See [the dashboard guide](docs/dashboard.md) for architecture,
-schemas, Windows executable paths, commands, actual test results, and local
-transport verification limitations.
+Then, in two terminals inside `dashboard/`:
 
-## Git initialization
+```sh
+npm run server
+```
 
-This directory is already a Git repository. This phase changes working-tree
-files only; it does not create commits or change remotes.
+```sh
+npm run dev
+```
 
+Open **http://127.0.0.1:5173**, select a scenario and press Start. Node serves
+loopback port 8080; Vite proxies `/api`. Stop cancels the child; completed runs
+retain a summary and clearly historical values. Ctrl+C shuts down the servers.
+The dashboard shows ECU cards, RPM/speed, bounded CAN history and fault/recovery
+records; current values require connected, fresh, valid data. Commands cannot
+set arbitrary ECU internals. This runs real events from finite deterministic
+scenarios paced at 0.25x, not a completed-report replay or the four-worker mode.
+
+On Windows set `VAECU_BRIDGE_PATH` to `build/Debug/vaecu_bridge.exe` before server
+or process tests. Alternate build directories also require that environment
+variable. Exact setup, schema, HTTP status codes, limits and shutdown rules are
+in [the dashboard guide](docs/dashboard.md). Browser-to-HTTP/visual verification
+remains blocked in this workspace; successful component/process tests do not
+establish browser end-to-end success.
+
+## Dependencies, quality checks and CI
+
+C++17 is required with extensions disabled. Project warnings include
+`-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow
+-Wnon-virtual-dtor -Woverloaded-virtual` for GCC/Clang and
+`/W4 /permissive- /Zc:__cplusplus` for MSVC. Test libraries are separate targets.
+GoogleTest/GoogleMock **1.17.0** is pinned through FetchContent with archive SHA-256:
+
+```text
+65fab701d9829d38cb77c14acdc431d2108bfdbf8979e40eb8ae567edf10b27c
+```
+
+For an offline build, add
+`-DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/absolute/path/to/verified/googletest-1.17.0`.
+Verify the pinned archive before extracting it: this override bypasses the
+FetchContent archive check. Dashboard direct versions and archive integrity are
+pinned by `package.json`/`package-lock.json`; use `npm ci`.
+
+Optional compiler/runtime checks, from the root on a supported GCC/Clang mode:
+
+```sh
+cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DVAECU_BUILD_BRIDGE=ON -DVAECU_ENABLE_ASAN=ON -DVAECU_ENABLE_UBSAN=ON
+cmake --build build-asan --parallel 2
+ctest --test-dir build-asan --output-on-failure --no-tests=error
+cmake -S . -B build-tsan-check -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DVAECU_BUILD_BRIDGE=ON -DVAECU_ENABLE_TSAN=ON
+cmake --build build-tsan-check --parallel 2
+ctest --test-dir build-tsan-check --output-on-failure --no-tests=error
+```
+
+Use a separate TSan build; combining it with ASan/UBSan is rejected. Sanitizer
+support is compile/link checked; MSVC modes are not supported by this helper.
+`.clang-tidy` supplies focused analyzer/RAII/use-after-move checks. It does not
+mean clang-tidy has run. [Testing notes](docs/testing.md) document coverage areas
+and [concurrency notes](docs/concurrency.md) explain synchronization.
+
+[The GitHub Actions workflow](.github/workflows/cpp-ci.yml) configures, builds and
+tests the C++ project with the bridge on macOS, Ubuntu and Windows. It has no
+publish/deploy step. It is configured, not yet a verified hosted CI run. Local
+CI-equivalent stages and their offline dependency override are recorded in
+[the final review](docs/final-review.md#executed-verification).
+
+## Known limitations
+
+- Software-only host simulation: **no physical CAN communication**, CAN adapter,
+  electrical arbitration/signaling, ACK/CRC/bit-stuffing, bitrate model, bus-off
+  behavior or full CAN protocol compliance. Only 11-bit data identifiers and up
+  to eight payload bytes are modeled; no CAN FD/extended identifiers.
+- **No real microcontroller firmware**, device drivers, interrupts, RTOS,
+  cross-compilation, flashing, hardware-in-the-loop or physical sensor validation.
+- Project-specific diagnostics: **no standards-compliant UDS/OBD/AUTOSAR claim**.
+- **No production automotive safety certification**, ISO 26262/ASIL assessment,
+  MISRA compliance evidence, real-time guarantee or vehicle-ready claim.
+- Values/timelines are fixed demonstrations, not a physical vehicle model.
+  Histories are bounded and not persisted; equal timestamps have no replay/authentication
+  protection. Errors/loss policies are explicit, not guaranteed delivery.
+- Local macOS arm64 verification is available. Other target OS/architectures,
+  hosted CI and browser networking/visual rendering remain unverified here.
+- No coverage percentage, latency/throughput benchmark, WCET or performance
+  claim has been measured. Sanitizer/test passes cover executed paths only.
+
+## Repository map and portfolio material
+
+```text
+app/                    CLI and optional C++ bridge applications
+include/vaecu/          Public types, interfaces and runtime declarations
+src/                    ECU, codec, bus, diagnostics and runtime implementations
+tests/                  GoogleTest/GoogleMock and CLI process regression cases
+cmake/                  Compiler sanitizer configuration
+.github/workflows/      C++ OS-matrix CI configuration
+dashboard/              Optional React, typed protocol, Node server and Vitest tests
+docs/uml.md             Implementation-matched diagrams and source traceability
+docs/adr/               Implemented decisions and trade-offs
+docs/final-review.md    Verification, skill evidence, prioritized gaps and walkthrough
+```
+
+The [interview walkthrough and resume entry](docs/final-review.md#technical-interview-walkthrough)
+use only verified project claims. The skill review is relevant to a junior
+embedded/automotive C++ role; no specific BMW job-description text was supplied,
+so no exact hiring-fit or experience claim is inferred.

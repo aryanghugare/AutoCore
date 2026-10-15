@@ -72,9 +72,9 @@ but marks any previously received signal stale.
 Producer `last_send_result()` is absent before the first completed send; it
 retains the latest completed `SendResult`, including overflow counts or closure.
 There are no automatic retries or unbounded pending publications. Sender
-exceptions propagate without replacing the previous completed result; a future
-runtime will provide its exception boundary. Tick frequency is chosen by the
-caller. Producer callback timestamps follow the scenario's monotonic timeline
+exceptions propagate without replacing the previous completed result; the
+concurrent runtime supplies its worker exception boundary. Tick frequency is
+chosen by the caller. Producer callback timestamps follow the scenario's monotonic timeline
 and are checked before transmission or message handling.
 
 ## Incoming-message and freshness policy
@@ -124,8 +124,9 @@ A brake event follows the same routing path to Brake `on_message()`, which
 changes brake state. The next brake tick publishes status for the dashboard.
 There is no callback recursion or direct Engine-to-Dashboard dependency.
 
-`app/main.cpp` demonstrates normal communication, brake application, stale data,
-and recovery using synthetic timestamps and no threads or sleeps. Unit tests
+The default CLI delegates to `run_demo_scenario` for normal communication, brake
+application, stale data and recovery using synthetic timestamps without waits.
+`--concurrent` selects the separate threaded runtime. Unit tests
 inject GoogleMock senders; a dashboard test dispatches frames from a mock
 receiver. Additional integration tests exercise the real virtual bus, event
 routing, independent recovery, and overflow without real-time waiting.

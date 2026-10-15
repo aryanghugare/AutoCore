@@ -56,7 +56,7 @@ export function isBridgeEvent(value: unknown): value is BridgeEvent {
     case 'can': return oneOf(value.source, ['Engine', 'Brake', 'Scenario']) && integer(value.id, 2047) &&
       Array.isArray(value.payload) && value.payload.length <= 8 && value.payload.every(b => integer(b, 255)) && integer(value.routed, 4) && integer(value.dropped, 4);
     case 'status': return isRecord(value.ecus) && ['Engine', 'Brake', 'Dashboard'].every(k => oneOf((value.ecus as Record<string, unknown>)[k], ['online', 'offline'])) &&
-      health(value.engineHealth) && health(value.brakeHealth) && nullableNumber(value.rpm, 12000) && nullableNumber(value.speedKph, 300) &&
+      health(value.engineHealth) && health(value.brakeHealth) && nullableNumber(value.rpm, 9000) && nullableNumber(value.speedKph, 300) &&
       (value.brakeApplied === null || typeof value.brakeApplied === 'boolean');
     case 'diagnostic': return fault(value);
     case 'summary': return typeof value.cancelled === 'boolean' &&

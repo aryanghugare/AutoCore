@@ -1,0 +1,41 @@
+@startuml
+left to right direction
+package "C++ build components" {
+  component "vaecu_sim" as Sim
+  component "vaecu_cli" as Cli
+  component "vaecu_core" as Core
+  component "vaecu_bridge" as Bridge
+  component "vaecu_bridge_json" as Json
+  component "vaecu_tests" as Tests
+  component "GoogleTest / GoogleMock" as Gtest
+  component "C++17 standard library / Threads::Threads" as Std
+  Sim ..> Cli : links
+  Cli ..> Core : links
+  Bridge ..> Json : links
+  Json ..> Core : links
+  Tests ..> Cli : links
+  Tests ..> Json : bridge ON only
+  Tests ..> Gtest : links
+  Core ..> Std : uses
+}
+package "Optional local dashboard" {
+  component "React components / useSimulation" as React
+  component "Typed HTTP client / protocol validators" as Api
+  component "Vite same-origin proxy" as Proxy
+  component "Node HTTP handler" as Http
+  component "SimulationController" as Controller
+  React ..> Api : uses
+  Api ..> Proxy : HTTP requests
+  Proxy ..> Http : forwards
+  Http ..> Controller : uses
+  Controller ..> Bridge : spawns child; stdin stop or EOF
+  Bridge --> Controller : JSON-line events on stdout
+  Http --> Proxy : JSON snapshots
+  Proxy --> Api : forwards response
+}
+note bottom of Core
+  No frontend or web-library dependency.
+  Bridge targets are optional.
+  Test targets exist with BUILD_TESTING=ON.
+end note
+@enduml

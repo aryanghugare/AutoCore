@@ -21,6 +21,9 @@ describe('wire schema', () => {
     expect(isBridgeEvent({ ...status, ecus: { Engine: 'online' } })).toBe(false);
     expect(isBridgeEvent({ ...status, type: 'other' })).toBe(false);
   });
+  it.each([[9000, true], [9001, false], [12000, false]])('matches the core engine RPM limit for %i', (rpm, valid) => {
+    expect(isBridgeEvent({ ...status, rpm })).toBe(valid);
+  });
   it('rejects malformed snapshots and over-capacity history', () => {
     expect(() => parseSnapshot(null)).toThrow('malformed');
     expect(() => parseSnapshot({ ...snapshot(), version: 2 })).toThrow('malformed');

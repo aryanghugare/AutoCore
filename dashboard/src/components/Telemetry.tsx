@@ -12,7 +12,7 @@ export function Telemetry({ snapshot, connection }: { snapshot: Snapshot | null;
     status?.engineHealth === 'stale' ? 'Engine telemetry stale' : (snapshot?.statusAgeMs != null && snapshot.statusAgeMs > 2000) ? 'Telemetry updates delayed' : status ? 'Waiting for current telemetry' : 'Waiting for an Engine sample';
   return <section className="telemetry-grid" aria-label="Vehicle telemetry">
     {([{ label: 'Vehicle speed', value: status?.speedKph, unit: 'km/h', limit: 300, kind: 'speed' },
-      { label: 'Engine speed', value: status?.rpm, unit: 'RPM', limit: 12000, kind: 'rpm' }] as const).map(metric =>
+      { label: 'Engine speed', value: status?.rpm, unit: 'RPM', limit: 9000, kind: 'rpm' }] as const).map(metric =>
       <article className={`metric-card ${metric.kind}`} key={metric.kind}>
         <div className="metric-heading"><h2>{metric.label}</h2><span className={`badge ${live ? 'online' : 'unknown'}`}>{live ? 'CURRENT' : 'UNAVAILABLE'}</span></div>
         <div className="metric-value"><strong>{live && metric.value != null ? metric.value.toLocaleString('en-US') : '—'}</strong><span>{metric.unit}</span></div>
